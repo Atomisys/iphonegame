@@ -12,6 +12,7 @@ class Enemy {
     let sprite: SKSpriteNode
     let color: SKColor
     var direction: Direction = .down // Default direction
+    var lastGridPosition: CGPoint = CGPoint.zero // Track the last grid position to prevent backtracking
     
     init(sprite: SKSpriteNode, color: SKColor) {
         self.sprite = sprite
@@ -24,7 +25,7 @@ final class GameScene: SKScene {
     // MARK: - Game Constants
     private var gridSize: CGFloat = 32
     private let playerSpeed: CGFloat = 150
-    private let enemySpeedMultiplier: CGFloat = 0.1  // Enemy speed relative to player (0.1 = 10% speed)
+    private var enemySpeedMultiplier: CGFloat = 0.2  // Enemy speed relative to player (starts at 20% speed)
     private let debugMode = true // Set to false to disable debug features
     
     private var enemySpeed: CGFloat {
@@ -185,7 +186,7 @@ final class GameScene: SKScene {
                     continue
                 }
                 
-                if Bool.random() {
+                if Double.random(in: 0...1) < 0.25 {
                     createWall(at: getWorldPosition(CGPoint(x: CGFloat(x), y: CGFloat(y))))
                 }
             }
@@ -193,7 +194,7 @@ final class GameScene: SKScene {
         
         // Add some diagonal walls for variety
         for i in stride(from: 3, to: 9, by: 2) {
-            if Bool.random() {
+            if Double.random(in: 0...1) < 0.25 {
                 createWall(at: getWorldPosition(CGPoint(x: CGFloat(i), y: CGFloat(i + 2))))
             }
         }
@@ -539,77 +540,107 @@ final class GameScene: SKScene {
     }
     
     private func startEnemyMovement(enemy: Enemy, from currentGridPos: CGPoint) {
-        let direction = getEnemyDirection(enemy)
+        // Build a list of all possible directions
+        let allDirections = [
+            CGVector(dx: 0, dy: 1),  // Up
+            CGVector(dx: 0, dy: -1), // Down
+            CGVector(dx: -1, dy: 0), // Left
+            CGVector(dx: 1, dy: 0)   // Right
+        ]
+        
+        var possibleDirections: [CGVector] = []
+        
+        // Check which directions are valid (no walls, within bounds, and not going back to last position)
+        for direction in allDirections {
+            let testGridPos = CGPoint(
+                x: currentGridPos.x + direction.dx,
+                y: currentGridPos.y + direction.dy
+            )
+            
+            if isValidGridPosition(testGridPos) && !isWallAtGridPosition(testGridPos) {
+                // Don't go back to the position we just came from
+                if testGridPos != enemy.lastGridPosition {
+                    possibleDirections.append(direction)
+                }
+            }
+        }
+        
+        // If no directions available, wait and try again
+        if possibleDirections.isEmpty {
+            let waitDuration = Double(gridSize) / Double(enemySpeed)
+            let waitAction = SKAction.wait(forDuration: waitDuration)
+            let retryAction = SKAction.run { [weak self] in
+                self?.startEnemyMovement(enemy: enemy, from: currentGridPos)
+            }
+            let sequence = SKAction.sequence([waitAction, retryAction])
+            enemy.sprite.run(sequence, withKey: "enemyMovement")
+            return
+        }
+        
+        // Pick a random direction from the available ones
+        let chosenDirection = possibleDirections.randomElement()!
+        moveEnemy(enemy: enemy, direction: chosenDirection, from: currentGridPos)
+    }
+    
+    private func moveEnemy(enemy: Enemy, direction: CGVector, from currentGridPos: CGPoint) {
         let targetGridPos = CGPoint(
             x: currentGridPos.x + direction.dx,
             y: currentGridPos.y + direction.dy
         )
         
-        // Check if the enemy can move in the preferred direction
-        if isValidGridPosition(targetGridPos) && !isWallAtGridPosition(targetGridPos) {
-            // Update enemy direction
-            enemy.direction = vectorToDirection(direction)
-            
-            let targetWorldPos = getWorldPosition(targetGridPos)
-            // Calculate duration based on enemy speed and grid size
-            let moveDuration = Double(gridSize) / Double(enemySpeed)
-            let moveAction = SKAction.move(to: targetWorldPos, duration: moveDuration)
-            moveAction.timingMode = .linear
-            
-            // Chain the next movement decision to avoid pausing
-            let nextMoveAction = SKAction.run { [weak self] in
-                self?.startEnemyMovement(enemy: enemy, from: targetGridPos)
+        // Store the current position as lastGridPosition BEFORE moving
+        enemy.lastGridPosition = currentGridPos
+        // Update enemy direction to the new direction
+        enemy.direction = vectorToDirection(direction)
+        
+        let targetWorldPos = getWorldPosition(targetGridPos)
+        // Calculate duration based on enemy speed and grid size
+        let moveDuration = Double(gridSize) / Double(enemySpeed)
+        let moveAction = SKAction.move(to: targetWorldPos, duration: moveDuration)
+        moveAction.timingMode = .linear
+        
+        // Check if the target position is an intersection (multiple directions available)
+        let allDirections = [
+            CGVector(dx: 0, dy: 1),  // Up
+            CGVector(dx: 0, dy: -1), // Down
+            CGVector(dx: -1, dy: 0), // Left
+            CGVector(dx: 1, dy: 0)   // Right
+        ]
+        
+        var availableDirectionsAtTarget: [CGVector] = []
+        for dir in allDirections {
+            let testGridPos = CGPoint(
+                x: targetGridPos.x + dir.dx,
+                y: targetGridPos.y + dir.dy
+            )
+            if isValidGridPosition(testGridPos) && !isWallAtGridPosition(testGridPos) {
+                availableDirectionsAtTarget.append(dir)
             }
-            
-            let sequence = SKAction.sequence([moveAction, nextMoveAction])
-            enemy.sprite.run(sequence, withKey: "enemyMovement")
-        } else {
-            // If blocked, try to find an alternative path
-            let alternativeDirection = findAlternativeGridPath(for: enemy, from: currentGridPos)
-            if alternativeDirection != .zero {
-                let alternativeGridPos = CGPoint(
-                    x: currentGridPos.x + alternativeDirection.dx,
-                    y: currentGridPos.y + alternativeDirection.dy
-                )
-                
-                if isValidGridPosition(alternativeGridPos) && !isWallAtGridPosition(alternativeGridPos) {
-                    // Update enemy direction
-                    enemy.direction = vectorToDirection(alternativeDirection)
-                    
-                    let alternativeWorldPos = getWorldPosition(alternativeGridPos)
-                    // Calculate duration based on enemy speed and grid size
-                    let moveDuration = Double(gridSize) / Double(enemySpeed)
-                    let moveAction = SKAction.move(to: alternativeWorldPos, duration: moveDuration)
-                    moveAction.timingMode = .linear
-                    
-                    // Chain the next movement decision
-                    let nextMoveAction = SKAction.run { [weak self] in
-                        self?.startEnemyMovement(enemy: enemy, from: alternativeGridPos)
-                    }
-                    
-                    let sequence = SKAction.sequence([moveAction, nextMoveAction])
-                    enemy.sprite.run(sequence, withKey: "enemyMovement")
-                } else {
-                    // If still blocked, wait a bit and try again
-                    let waitDuration = Double(gridSize) / Double(enemySpeed) / 2.0  // Wait for half a movement duration
-                    let waitAction = SKAction.wait(forDuration: waitDuration)
-                    let retryAction = SKAction.run { [weak self] in
-                        self?.startEnemyMovement(enemy: enemy, from: currentGridPos)
-                    }
-                    let sequence = SKAction.sequence([waitAction, retryAction])
-                    enemy.sprite.run(sequence, withKey: "enemyMovement")
-                }
+        }
+        
+        // Only make a new decision if we're at an intersection (multiple directions available)
+        let nextMoveAction = SKAction.run { [weak self] in
+            if availableDirectionsAtTarget.count > 1 {
+                // We're at an intersection, make a new decision
+                self?.startEnemyMovement(enemy: enemy, from: targetGridPos)
+            } else if availableDirectionsAtTarget.count == 1 {
+                // Only one direction available, continue in that direction
+                let nextDirection = availableDirectionsAtTarget[0]
+                self?.moveEnemy(enemy: enemy, direction: nextDirection, from: targetGridPos)
             } else {
-                // If no valid move found, wait and try again
-                let waitDuration = Double(gridSize) / Double(enemySpeed)  // Wait for one movement duration
+                // No directions available, wait and try again (dead end)
+                let waitDuration = Double(self?.gridSize ?? 32) / Double(self?.enemySpeed ?? 100)
                 let waitAction = SKAction.wait(forDuration: waitDuration)
                 let retryAction = SKAction.run { [weak self] in
-                    self?.startEnemyMovement(enemy: enemy, from: currentGridPos)
+                    self?.startEnemyMovement(enemy: enemy, from: targetGridPos)
                 }
                 let sequence = SKAction.sequence([waitAction, retryAction])
                 enemy.sprite.run(sequence, withKey: "enemyMovement")
             }
         }
+        
+        let sequence = SKAction.sequence([moveAction, nextMoveAction])
+        enemy.sprite.run(sequence, withKey: "enemyMovement")
     }
     
     private func getEnemyDirection(_ enemy: Enemy) -> CGVector {
@@ -637,6 +668,47 @@ final class GameScene: SKScene {
             return .up    // Negative Y in our inverted system means moving up
         }
         return .down // Default fallback
+    }
+    
+    private func getOppositeDirection(_ direction: Direction) -> Direction {
+        switch direction {
+        case .up:
+            return .down
+        case .down:
+            return .up
+        case .left:
+            return .right
+        case .right:
+            return .left
+        }
+    }
+    
+    private func getOppositeDirection(_ direction: CGPoint) -> Direction {
+        switch direction {
+        case CGPoint(x: 0, y: 1): // Up
+            return .down
+        case CGPoint(x: 0, y: -1): // Down
+            return .up
+        case CGPoint(x: -1, y: 0): // Left
+            return .right
+        case CGPoint(x: 1, y: 0): // Right
+            return .left
+        default:
+            return .down // Default fallback
+        }
+    }
+    
+    private func directionToVector(_ direction: Direction) -> CGVector {
+        switch direction {
+        case .up:
+            return CGVector(dx: 0, dy: 1)
+        case .down:
+            return CGVector(dx: 0, dy: -1)
+        case .left:
+            return CGVector(dx: -1, dy: 0)
+        case .right:
+            return CGVector(dx: 1, dy: 0)
+        }
     }
     
     private func findAlternativePath(for enemy: SKSpriteNode) -> CGVector {
@@ -753,6 +825,14 @@ final class GameScene: SKScene {
             
             // Check if this direction is valid (no walls, within bounds)
             if isValidGridPosition(testGridPos) && !isWallAtGridPosition(testGridPos) {
+                // Avoid going back the way we just came
+                let directionEnum = vectorToDirection(direction)
+                let oppositeDirection = getOppositeDirection(enemy.direction)
+                
+                if directionEnum == oppositeDirection {
+                    continue // Skip this direction as it's the opposite of where we just came from
+                }
+                
                 // Calculate grid distance to player
                 let distanceToPlayer = sqrt(
                     pow(testGridPos.x - playerGridPos.x, 2) +
@@ -763,6 +843,22 @@ final class GameScene: SKScene {
                 if distanceToPlayer < shortestDistance {
                     shortestDistance = distanceToPlayer
                     bestDirection = direction
+                }
+            }
+        }
+        
+        // If no valid direction found (all directions blocked or would backtrack), 
+        // allow backtracking as a last resort
+        if bestDirection == .zero {
+            for direction in directions {
+                let testGridPos = CGPoint(
+                    x: currentGridPos.x + direction.dx,
+                    y: currentGridPos.y + direction.dy
+                )
+                
+                if isValidGridPosition(testGridPos) && !isWallAtGridPosition(testGridPos) {
+                    bestDirection = direction
+                    break
                 }
             }
         }
@@ -886,6 +982,11 @@ final class GameScene: SKScene {
     private func levelComplete() {
         gameState = .levelComplete
         score += 1000
+        
+        // Increase enemy speed by 10% for the next level
+        enemySpeedMultiplier += 0.1
+        print("Enemy speed increased to \(enemySpeedMultiplier * 100)% of player speed")
+        
         updateUI()
         
         // Show level complete message
@@ -948,6 +1049,7 @@ final class GameScene: SKScene {
         score = 0
         lives = 3
         cherriesCollected = 0
+        enemySpeedMultiplier = 0.2  // Reset enemy speed to starting value
         gameState = .playing
         
         // Remove all game objects
@@ -982,10 +1084,13 @@ final class GameScene: SKScene {
         // Update debug direction label if debug mode is enabled
         if debugMode && debugDirectionLabel != nil {
             if !enemies.isEmpty {
-                debugDirectionLabel.text = "DIR: \(enemies[0].direction.rawValue.uppercased())"
+                let enemy = enemies[0]
+                let currentGridPos = getGridPosition(enemy.sprite.position)
+                debugDirectionLabel.text = "DIR: \(enemy.direction.rawValue.uppercased()) | LAST: (\(Int(enemy.lastGridPosition.x)),\(Int(enemy.lastGridPosition.y)))"
             } else {
-                debugDirectionLabel.text = "DIR: --"
+                debugDirectionLabel.text = "DIR: -- | LAST: --"
             }
         }
     }
 }
+
