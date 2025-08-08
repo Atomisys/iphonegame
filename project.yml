@@ -1,0 +1,28 @@
+name: DoArcade
+options:
+  minimumXcodeGenVersion: 2.30.0
+  generateEmptyDirectories: true
+  deploymentTarget:
+    iOS: 18.0
+targets:
+  DoArcade:
+    type: application
+    platform: iOS
+    deploymentTarget: 18.0
+    sources:
+      - path: Sources
+        excludes:
+          - "**/*.md"
+    resources:
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.michaelharding.doarcade
+        INFOPLIST_FILE: Resources/Info.plist
+        SWIFT_VERSION: 5.9
+        IPHONEOS_DEPLOYMENT_TARGET: 18.0
+    dependencies:
+      - sdk: SpriteKit.framework
+      - sdk: GameplayKit.framework
+    scheme:
+      testTargets: []
