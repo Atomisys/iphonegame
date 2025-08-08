@@ -1,9 +1,17 @@
 import SpriteKit
 import GameplayKit
 
+enum Direction: String, CaseIterable {
+    case up = "up"
+    case down = "down"
+    case left = "left"
+    case right = "right"
+}
+
 class Enemy {
     let sprite: SKSpriteNode
     let color: SKColor
+    var direction: Direction = .down // Default direction
     
     init(sprite: SKSpriteNode, color: SKColor) {
         self.sprite = sprite
@@ -17,6 +25,7 @@ final class GameScene: SKScene {
     private var gridSize: CGFloat = 32
     private let playerSpeed: CGFloat = 150
     private let enemySpeedMultiplier: CGFloat = 0.1  // Enemy speed relative to player (0.1 = 10% speed)
+    private let debugMode = true // Set to false to disable debug features
     
     private var enemySpeed: CGFloat {
         return playerSpeed * enemySpeedMultiplier
@@ -47,6 +56,7 @@ final class GameScene: SKScene {
     private var scoreLabel: SKLabelNode!
     private var livesLabel: SKLabelNode!
     private var gameOverLabel: SKLabelNode!
+    private var debugDirectionLabel: SKLabelNode! // Debug label for enemy direction
     
     // MARK: - Input
     private var currentDirection: CGVector = .zero
@@ -91,6 +101,7 @@ final class GameScene: SKScene {
         spawnPlayer()
         spawnEnemies()
         spawnCherries()
+        updateUI() // Initialize UI labels
     }
     
     private func setupUI() {
@@ -109,6 +120,18 @@ final class GameScene: SKScene {
         livesLabel.position = CGPoint(x: size.width - 75, y: size.height - 20)
         livesLabel.text = "LIVES: 3"
         addChild(livesLabel)
+        
+        // Debug direction label - only show if debug mode is enabled
+        if debugMode {
+            debugDirectionLabel = SKLabelNode(fontNamed: "Courier-Bold")
+            debugDirectionLabel.fontSize = 18 // Made larger
+            debugDirectionLabel.fontColor = SKColor(red: 1.0, green: 1.0, blue: 0.0, alpha: 1.0) // Bright yellow
+            debugDirectionLabel.position = CGPoint(x: size.width/2, y: size.height - 80) // Moved lower
+            debugDirectionLabel.text = "DIR: --"
+            debugDirectionLabel.zPosition = 1000 // Ensure it appears above other elements
+            addChild(debugDirectionLabel)
+            print("DEBUG: Created debug direction label at position: \(debugDirectionLabel.position)")
+        }
         
         // Game over label (hidden initially)
         gameOverLabel = SKLabelNode(fontNamed: "Courier-Bold")
@@ -416,6 +439,9 @@ final class GameScene: SKScene {
         
         // Check collisions every frame for responsive gameplay
         checkCollisions()
+        
+        // Update UI every frame to show real-time debug info
+        updateUI()
     }
     
     private func updatePlayer() {
@@ -521,6 +547,9 @@ final class GameScene: SKScene {
         
         // Check if the enemy can move in the preferred direction
         if isValidGridPosition(targetGridPos) && !isWallAtGridPosition(targetGridPos) {
+            // Update enemy direction
+            enemy.direction = vectorToDirection(direction)
+            
             let targetWorldPos = getWorldPosition(targetGridPos)
             // Calculate duration based on enemy speed and grid size
             let moveDuration = Double(gridSize) / Double(enemySpeed)
@@ -544,6 +573,9 @@ final class GameScene: SKScene {
                 )
                 
                 if isValidGridPosition(alternativeGridPos) && !isWallAtGridPosition(alternativeGridPos) {
+                    // Update enemy direction
+                    enemy.direction = vectorToDirection(alternativeDirection)
+                    
                     let alternativeWorldPos = getWorldPosition(alternativeGridPos)
                     // Calculate duration based on enemy speed and grid size
                     let moveDuration = Double(gridSize) / Double(enemySpeed)
@@ -592,6 +624,19 @@ final class GameScene: SKScene {
             // enemy should move to lower row number in grid coordinates (negative Y movement)
             return deltaY > 0 ? CGVector(dx: 0, dy: -1) : CGVector(dx: 0, dy: 1)
         }
+    }
+    
+    private func vectorToDirection(_ vector: CGVector) -> Direction {
+        if vector.dx > 0 {
+            return .right
+        } else if vector.dx < 0 {
+            return .left
+        } else if vector.dy > 0 {
+            return .down  // Positive Y in our inverted system means moving down
+        } else if vector.dy < 0 {
+            return .up    // Negative Y in our inverted system means moving up
+        }
+        return .down // Default fallback
     }
     
     private func findAlternativePath(for enemy: SKSpriteNode) -> CGVector {
@@ -933,5 +978,14 @@ final class GameScene: SKScene {
     private func updateUI() {
         scoreLabel.text = String(format: "SCORE: %05d", score)
         livesLabel.text = "LIVES: \(lives)"
+        
+        // Update debug direction label if debug mode is enabled
+        if debugMode && debugDirectionLabel != nil {
+            if !enemies.isEmpty {
+                debugDirectionLabel.text = "DIR: \(enemies[0].direction.rawValue.uppercased())"
+            } else {
+                debugDirectionLabel.text = "DIR: --"
+            }
+        }
     }
 }
