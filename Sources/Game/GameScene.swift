@@ -1,6 +1,16 @@
 import SpriteKit
 import GameplayKit
 
+class Enemy {
+    let sprite: SKSpriteNode
+    let color: SKColor
+    
+    init(sprite: SKSpriteNode, color: SKColor) {
+        self.sprite = sprite
+        self.color = color
+    }
+}
+
 final class GameScene: SKScene {
     
     // MARK: - Game Constants
@@ -27,7 +37,7 @@ final class GameScene: SKScene {
     
     // MARK: - Game Objects
     private var player: SKSpriteNode!
-    private var enemies: [SKSpriteNode] = []
+    private var enemies: [Enemy] = []
     private var cherries: [SKSpriteNode] = []
     private var walls: [SKSpriteNode] = []
     private var borderWalls: [SKSpriteNode] = []  // Permanent, undiggable border walls
@@ -232,7 +242,7 @@ final class GameScene: SKScene {
         ]
         
         for i in 0..<enemyCount {
-            let enemy = createPixelatedSprite(size: CGSize(width: gridSize * 0.8, height: gridSize * 0.8), color: enemyColors[i])
+            let enemySprite = createPixelatedSprite(size: CGSize(width: gridSize * 0.8, height: gridSize * 0.8), color: enemyColors[i])
             
             // Spawn enemies at top of game area (row 2, columns 2, 6, 9)
             let enemyGridPositions = [
@@ -243,25 +253,27 @@ final class GameScene: SKScene {
             
             let gridPos = enemyGridPositions[i]
             let worldPos = getWorldPosition(gridPos)
-            enemy.position = worldPos
-            enemy.name = "enemy"
+            enemySprite.position = worldPos
+            enemySprite.name = "enemy"
             
             // Add enemy details
             let eye1 = SKShapeNode(circleOfRadius: 2)
             eye1.fillColor = .white
             eye1.position = CGPoint(x: -6, y: 4)
-            enemy.addChild(eye1)
+            enemySprite.addChild(eye1)
             
             let eye2 = SKShapeNode(circleOfRadius: 2)
             eye2.fillColor = .white
             eye2.position = CGPoint(x: 6, y: 4)
-            enemy.addChild(eye2)
+            enemySprite.addChild(eye2)
             
+            // Create Enemy object
+            let enemy = Enemy(sprite: enemySprite, color: enemyColors[i])
             enemies.append(enemy)
-            addChild(enemy)
+            addChild(enemySprite)
             
             // Start the movement chain for this enemy
-            let enemyGridPos = getGridPosition(enemy.position)
+            let enemyGridPos = getGridPosition(enemySprite.position)
             startEnemyMovement(enemy: enemy, from: enemyGridPos)
         }
     }
@@ -339,7 +351,7 @@ final class GameScene: SKScene {
         }
         
         for enemy in enemies {
-            if checkNode.frame.intersects(enemy.frame) {
+            if checkNode.frame.intersects(enemy.sprite.frame) {
                 return true
             }
         }
@@ -481,18 +493,18 @@ final class GameScene: SKScene {
     private func updateEnemies() {
         for enemy in enemies {
             // Skip if enemy is currently moving
-            if enemy.hasActions() {
+            if enemy.sprite.hasActions() {
                 continue
             }
             
             // Get the enemy's current grid position
-            let currentGridPos = getGridPosition(enemy.position)
+            let currentGridPos = getGridPosition(enemy.sprite.position)
             
             // Ensure enemy is properly centered on grid before allowing movement
-            if !isAtGridCenter(enemy.position) {
+            if !isAtGridCenter(enemy.sprite.position) {
                 // Snap enemy to grid center
                 let centeredPosition = getWorldPosition(currentGridPos)
-                enemy.position = centeredPosition
+                enemy.sprite.position = centeredPosition
             }
             
             // Start a chain of movements to avoid pausing at each grid center
@@ -500,7 +512,7 @@ final class GameScene: SKScene {
         }
     }
     
-    private func startEnemyMovement(enemy: SKSpriteNode, from currentGridPos: CGPoint) {
+    private func startEnemyMovement(enemy: Enemy, from currentGridPos: CGPoint) {
         let direction = getEnemyDirection(enemy)
         let targetGridPos = CGPoint(
             x: currentGridPos.x + direction.dx,
@@ -521,7 +533,7 @@ final class GameScene: SKScene {
             }
             
             let sequence = SKAction.sequence([moveAction, nextMoveAction])
-            enemy.run(sequence, withKey: "enemyMovement")
+            enemy.sprite.run(sequence, withKey: "enemyMovement")
         } else {
             // If blocked, try to find an alternative path
             let alternativeDirection = findAlternativeGridPath(for: enemy, from: currentGridPos)
@@ -544,7 +556,7 @@ final class GameScene: SKScene {
                     }
                     
                     let sequence = SKAction.sequence([moveAction, nextMoveAction])
-                    enemy.run(sequence, withKey: "enemyMovement")
+                    enemy.sprite.run(sequence, withKey: "enemyMovement")
                 } else {
                     // If still blocked, wait a bit and try again
                     let waitDuration = Double(gridSize) / Double(enemySpeed) / 2.0  // Wait for half a movement duration
@@ -553,7 +565,7 @@ final class GameScene: SKScene {
                         self?.startEnemyMovement(enemy: enemy, from: currentGridPos)
                     }
                     let sequence = SKAction.sequence([waitAction, retryAction])
-                    enemy.run(sequence, withKey: "enemyMovement")
+                    enemy.sprite.run(sequence, withKey: "enemyMovement")
                 }
             } else {
                 // If no valid move found, wait and try again
@@ -563,15 +575,15 @@ final class GameScene: SKScene {
                     self?.startEnemyMovement(enemy: enemy, from: currentGridPos)
                 }
                 let sequence = SKAction.sequence([waitAction, retryAction])
-                enemy.run(sequence, withKey: "enemyMovement")
+                enemy.sprite.run(sequence, withKey: "enemyMovement")
             }
         }
     }
     
-    private func getEnemyDirection(_ enemy: SKSpriteNode) -> CGVector {
+    private func getEnemyDirection(_ enemy: Enemy) -> CGVector {
         // Simple AI: move towards player
-        let deltaX = player.position.x - enemy.position.x
-        let deltaY = player.position.y - enemy.position.y
+        let deltaX = player.position.x - enemy.sprite.position.x
+        let deltaY = player.position.y - enemy.sprite.position.y
         
         if abs(deltaX) > abs(deltaY) {
             return deltaX > 0 ? CGVector(dx: 1, dy: 0) : CGVector(dx: -1, dy: 0)
@@ -675,7 +687,7 @@ final class GameScene: SKScene {
         return false
     }
     
-    private func findAlternativeGridPath(for enemy: SKSpriteNode, from currentGridPos: CGPoint) -> CGVector {
+    private func findAlternativeGridPath(for enemy: Enemy, from currentGridPos: CGPoint) -> CGVector {
         let directions = [
             CGVector(dx: 0, dy: 1),  // Up
             CGVector(dx: 0, dy: -1), // Down
@@ -791,8 +803,8 @@ final class GameScene: SKScene {
         // Check enemy collision with more precise distance-based detection
         for enemy in enemies {
             let distance = sqrt(
-                pow(player.position.x - enemy.position.x, 2) +
-                pow(player.position.y - enemy.position.y, 2)
+                pow(player.position.x - enemy.sprite.position.x, 2) +
+                pow(player.position.y - enemy.sprite.position.y, 2)
             )
             
             // Collision radius - smaller than grid size for better feel
@@ -858,7 +870,7 @@ final class GameScene: SKScene {
     private func restartLevel() {
         // Remove all game objects
         player.removeFromParent()
-        enemies.forEach { $0.removeFromParent() }
+        enemies.forEach { $0.sprite.removeFromParent() }
         cherries.forEach { $0.removeFromParent() }
         walls.forEach { $0.removeFromParent() }
         borderWalls.forEach { $0.removeFromParent() }
@@ -895,7 +907,7 @@ final class GameScene: SKScene {
         
         // Remove all game objects
         player.removeFromParent()
-        enemies.forEach { $0.removeFromParent() }
+        enemies.forEach { $0.sprite.removeFromParent() }
         cherries.forEach { $0.removeFromParent() }
         walls.forEach { $0.removeFromParent() }
         borderWalls.forEach { $0.removeFromParent() }
