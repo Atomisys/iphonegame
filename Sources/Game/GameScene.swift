@@ -253,7 +253,8 @@ final class GameScene: SKScene {
         
         for i in 0..<enemyCount {
             let enemySprite = createPixelatedSprite(size: CGSize(width: gridSize * 0.8, height: gridSize * 0.8), color: enemyColors[i])
-            enemySprite.zPosition = 2
+            // Give each enemy a slightly different z so overlapping enemies stack together consistently
+            enemySprite.zPosition = 2 + (CGFloat(i) * 0.01)
             
             // Spawn enemies at top of game area (row 2, columns 2, 6, 9)
             let enemyGridPositions = [
@@ -278,8 +279,24 @@ final class GameScene: SKScene {
             eye2.position = CGPoint(x: 6, y: 4)
             enemySprite.addChild(eye2)
             
-            // Create Enemy object
+            // Add centered pupils
+            let pupilLeft = SKShapeNode(circleOfRadius: 1)
+            pupilLeft.fillColor = .black
+            pupilLeft.strokeColor = .black
+            pupilLeft.zPosition = 0
+            pupilLeft.position = CGPoint(x: -6, y: 4)
+            enemySprite.addChild(pupilLeft)
+
+            let pupilRight = SKShapeNode(circleOfRadius: 1)
+            pupilRight.fillColor = .black
+            pupilRight.strokeColor = .black
+            pupilRight.zPosition = 0
+            pupilRight.position = CGPoint(x: 6, y: 4)
+            enemySprite.addChild(pupilRight)
+            
+            // Create Enemy object and build its directional sprite variants
             let enemy = Enemy(sprite: enemySprite, color: enemyColors[i])
+            enemy.directionalSprites = buildDirectionalEnemySprites(baseColor: enemyColors[i])
             enemies.append(enemy)
             addChild(enemySprite)
             
@@ -287,6 +304,40 @@ final class GameScene: SKScene {
             let enemyGridPos = getGridPosition(enemySprite.position)
             startEnemyMovement(enemy: enemy, from: enemyGridPos)
         }
+    }
+
+    private func buildDirectionalEnemySprites(baseColor: SKColor) -> [SKSpriteNode] {
+        // Helper to build four variants with pupils offset relative to eye center
+        // Order: [up, down, left, right]
+        let offsets: [CGPoint] = [CGPoint(x: 0, y: 2), CGPoint(x: 0, y: -2), CGPoint(x: -2, y: 0), CGPoint(x: 2, y: 0)]
+        var sprites: [SKSpriteNode] = []
+        for delta in offsets {
+            let sprite = createPixelatedSprite(size: CGSize(width: gridSize * 0.8, height: gridSize * 0.8), color: baseColor)
+            // Eyes
+            let eyeLeft = SKShapeNode(circleOfRadius: 2)
+            eyeLeft.fillColor = .white
+            eyeLeft.position = CGPoint(x: -6, y: 4)
+            sprite.addChild(eyeLeft)
+            let eyeRight = SKShapeNode(circleOfRadius: 2)
+            eyeRight.fillColor = .white
+            eyeRight.position = CGPoint(x: 6, y: 4)
+            sprite.addChild(eyeRight)
+            // Pupils offset by delta
+            let pupilLeft = SKShapeNode(circleOfRadius: 1)
+            pupilLeft.fillColor = .black
+            pupilLeft.strokeColor = .black
+            pupilLeft.zPosition = 0
+            pupilLeft.position = CGPoint(x: -6 + delta.x, y: 4 + delta.y)
+            sprite.addChild(pupilLeft)
+            let pupilRight = SKShapeNode(circleOfRadius: 1)
+            pupilRight.fillColor = .black
+            pupilRight.strokeColor = .black
+            pupilRight.zPosition = 0
+            pupilRight.position = CGPoint(x: 6 + delta.x, y: 4 + delta.y)
+            sprite.addChild(pupilRight)
+            sprites.append(sprite)
+        }
+        return sprites
     }
     
     private func spawnCherries() {
@@ -577,6 +628,31 @@ final class GameScene: SKScene {
         moveEnemy(enemy: enemy, direction: chosenDirection, from: currentGridPos)
     }
     
+    private func useDirectionalSprite(for enemy: Enemy) {
+        guard !enemy.directionalSprites.isEmpty else { return }
+        let index: Int
+        switch enemy.direction {
+        case .up: index = 0
+        case .down: index = 1
+        case .left: index = 2
+        case .right: index = 3
+        }
+
+        let oldNode = enemy.sprite
+        let newNode = enemy.directionalSprites[index]
+
+        // If this node is already active, skip
+        if newNode === oldNode { return }
+
+        newNode.position = oldNode.position
+        newNode.zPosition = oldNode.zPosition
+        newNode.name = oldNode.name
+
+        addChild(newNode)
+        oldNode.removeFromParent()
+        enemy.sprite = newNode
+    }
+
     private func moveEnemy(enemy: Enemy, direction: CGVector, from currentGridPos: CGPoint) {
         let targetGridPos = CGPoint(
             x: currentGridPos.x + direction.dx,
@@ -585,8 +661,9 @@ final class GameScene: SKScene {
         
         // Store the current position as lastGridPosition BEFORE moving
         enemy.lastGridPosition = currentGridPos
-        // Update enemy direction to the new direction
+        // Update enemy direction to the new direction and swap sprite variant
         enemy.direction = vectorToDirection(direction)
+        useDirectionalSprite(for: enemy)
         
         let targetWorldPos = getWorldPosition(targetGridPos)
         // Calculate duration based on enemy speed and grid size
