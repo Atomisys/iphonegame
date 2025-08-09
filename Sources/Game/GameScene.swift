@@ -1,24 +1,6 @@
 import SpriteKit
 import GameplayKit
-
-enum Direction: String, CaseIterable {
-    case up = "up"
-    case down = "down"
-    case left = "left"
-    case right = "right"
-}
-
-class Enemy {
-    let sprite: SKSpriteNode
-    let color: SKColor
-    var direction: Direction = .down // Default direction
-    var lastGridPosition: CGPoint = CGPoint.zero // Track the last grid position to prevent backtracking
-    
-    init(sprite: SKSpriteNode, color: SKColor) {
-        self.sprite = sprite
-        self.color = color
-    }
-}
+import AudioToolbox
 
 final class GameScene: SKScene {
     
@@ -98,10 +80,11 @@ final class GameScene: SKScene {
         gridSize = cellSize
         
         createMaze()
+        // Spawn cherries immediately after maze so they render above walls but below player/enemies
+        spawnCherries()
         setupUI()
         spawnPlayer()
         spawnEnemies()
-        spawnCherries()
         updateUI() // Initialize UI labels
     }
     
@@ -204,6 +187,7 @@ final class GameScene: SKScene {
         let wall = createPixelatedSprite(size: CGSize(width: gridSize, height: gridSize), color: SKColor(red: 0.6, green: 0.4, blue: 0.2, alpha: 1.0))
         wall.position = position
         wall.name = "wall"
+        wall.zPosition = 0
         walls.append(wall)
         addChild(wall)
     }
@@ -212,6 +196,7 @@ final class GameScene: SKScene {
         let wall = createPixelatedSprite(size: CGSize(width: gridSize, height: gridSize), color: SKColor(red: 0.4, green: 0.3, blue: 0.1, alpha: 1.0))  // Darker color for border walls
         wall.position = position
         wall.name = "borderWall"
+        wall.zPosition = 0
         borderWalls.append(wall)
         addChild(wall)
     }
@@ -236,6 +221,7 @@ final class GameScene: SKScene {
     
     private func spawnPlayer() {
         player = createPixelatedSprite(size: CGSize(width: gridSize * 0.8, height: gridSize * 0.8), color: SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 1.0))
+        player.zPosition = 2
         
         // Spawn player at bottom center of game area (column 6, row 25)
         let playerGridPos = CGPoint(x: 6, y: 25)
@@ -267,6 +253,7 @@ final class GameScene: SKScene {
         
         for i in 0..<enemyCount {
             let enemySprite = createPixelatedSprite(size: CGSize(width: gridSize * 0.8, height: gridSize * 0.8), color: enemyColors[i])
+            enemySprite.zPosition = 2
             
             // Spawn enemies at top of game area (row 2, columns 2, 6, 9)
             let enemyGridPositions = [
@@ -306,15 +293,22 @@ final class GameScene: SKScene {
         for _ in 0..<cherriesRequired {
             let cherry = createCherrySprite()
             
-            // Find a random grid intersection in the game area (columns 1-10, rows 2-25)
+            // Force cherries to spawn inside diggable walls only, not borders and not overlapping others
             var gridPosition: CGPoint
             var worldPosition: CGPoint
+            var attempts = 0
             repeat {
                 let gridX = Int.random(in: 1...10)
                 let gridY = Int.random(in: 2...25)
                 gridPosition = CGPoint(x: CGFloat(gridX), y: CGFloat(gridY))
                 worldPosition = getWorldPosition(gridPosition)
-            } while isPositionOccupied(worldPosition)
+                attempts += 1
+                // Avoid infinite loop in sparse mazes
+                if attempts > 500 { break }
+            } while !isDiggableWallAtGridPosition(gridPosition) || hasCherry(atGridPosition: gridPosition)
+            
+            // If we failed to find a wall spot, skip placing this cherry
+            if !isDiggableWallAtGridPosition(gridPosition) { continue }
             
             cherry.position = worldPosition
             cherry.name = "cherry"
@@ -325,6 +319,7 @@ final class GameScene: SKScene {
     
     private func createCherrySprite() -> SKSpriteNode {
         let cherry = SKSpriteNode(color: .clear, size: CGSize(width: gridSize * 0.8, height: gridSize * 0.8))
+        cherry.zPosition = 1 // Above walls
         
         // Create cherry body
         let cherryBody = SKShapeNode(circleOfRadius: 8)
@@ -803,6 +798,27 @@ final class GameScene: SKScene {
         
         return false
     }
+
+    private func isDiggableWallAtGridPosition(_ gridPosition: CGPoint) -> Bool {
+        // True only for regular walls (not border walls)
+        for wall in walls {
+            let wallGridPos = getGridPosition(wall.position)
+            if abs(gridPosition.x - wallGridPos.x) < 0.1 && abs(gridPosition.y - wallGridPos.y) < 0.1 {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func hasCherry(atGridPosition gridPosition: CGPoint) -> Bool {
+        for cherry in cherries {
+            let cherryGridPos = getGridPosition(cherry.position)
+            if abs(gridPosition.x - cherryGridPos.x) < 0.1 && abs(gridPosition.y - cherryGridPos.y) < 0.1 {
+                return true
+            }
+        }
+        return false
+    }
     
     private func findAlternativeGridPath(for enemy: Enemy, from currentGridPos: CGPoint) -> CGVector {
         let directions = [
@@ -918,6 +934,8 @@ final class GameScene: SKScene {
                 cherry.removeFromParent()
                 cherriesCollected += 1
                 score += 100
+                // Play ding sound on cherry collection (crisper tone)
+                AudioServicesPlaySystemSound(1105) // "Tock" system sound
                 updateUI()
                 
                 // Add collection effect
