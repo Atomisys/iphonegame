@@ -7,7 +7,7 @@ final class GameScene: SKScene {
     // MARK: - Game Constants
     private var gridSize: CGFloat = 32
     private let playerSpeed: CGFloat = 150
-    private var enemySpeedMultiplier: CGFloat = 0.2  // Enemy speed relative to player (starts at 20% speed)
+    private var enemySpeedMultiplier: CGFloat = 0.5  // Enemy speed relative to player (starts at 20% speed)
     private let debugMode = true // Set to false to disable debug features
     
     private var enemySpeed: CGFloat {
@@ -19,13 +19,14 @@ final class GameScene: SKScene {
     private var gridHeight: Int = 0
     private var gridOffset: CGFloat = 0  // Horizontal offset to center the grid
     private var gridYOffset: CGFloat = 0  // Vertical offset to center the grid  // Offset to center the grid
+    private let useGeneratedMaze: Bool = true
     
     // MARK: - Game State
     private var gameState: GameState = .playing
     private var score: Int = 0
     private var lives: Int = 3
     private var cherriesCollected: Int = 0
-    private var cherriesRequired: Int = 5
+    private var cherriesRequired: Int = 10
     
     // MARK: - Game Objects
     private var player: SKSpriteNode!
@@ -157,28 +158,46 @@ final class GameScene: SKScene {
             createBorderWall(at: getWorldPosition(CGPoint(x: 11, y: CGFloat(y))))
         }
         
-        // Create internal maze structure in the game area (rows 2-25, columns 1-10)
-        for x in 1...10 {
-            for y in 2...25 {
-                // Skip player spawn area (bottom center)
-                if x == 6 && y == 25 {
-                    continue
-                }
-                // Skip enemy spawn areas (top row near edges and center)
-                if y == 2 && (x == 2 || x == 6 || x == 9) {
-                    continue
-                }
-                
-                if Double.random(in: 0...1) < 0.25 {
-                    createWall(at: getWorldPosition(CGPoint(x: CGFloat(x), y: CGFloat(y))))
+        if useGeneratedMaze {
+            // Generate a 10x22 grid for rows 2..23 and cols 1..10
+            let mazeGrid = Maze.generate(cols: 10, rows: 22)
+            // Map: mazeGrid[rowIndex][colIndex] where
+            // rowIndex 0 -> world row 2, ... rowIndex 21 -> world row 23
+            // colIndex 0 -> world col 1, ... colIndex 9 -> world col 10
+            for rowIndex in 0..<22 {
+                let worldRow = 3 + rowIndex
+                for colIndex in 0..<10 {
+                    let worldCol = 1 + colIndex
+                    if mazeGrid[rowIndex][colIndex] {
+                        createWall(at: getWorldPosition(CGPoint(x: CGFloat(worldCol), y: CGFloat(worldRow))))
+                    }
                 }
             }
-        }
-        
-        // Add some diagonal walls for variety
-        for i in stride(from: 3, to: 9, by: 2) {
-            if Double.random(in: 0...1) < 0.25 {
-                createWall(at: getWorldPosition(CGPoint(x: CGFloat(i), y: CGFloat(i + 2))))
+        } else {
+            // Existing random walls logic
+            // Create internal maze structure in the game area (rows 2-25, columns 1-10)
+            for x in 1...10 {
+                for y in 2...25 {
+                    // Skip player spawn area (bottom center)
+                    if x == 6 && y == 25 {
+                        continue
+                    }
+                    // Skip enemy spawn areas (top row near edges and center)
+                    if y == 2 && (x == 2 || x == 6 || x == 9) {
+                        continue
+                    }
+                    
+                    if Double.random(in: 0...1) < 0.25 {
+                        createWall(at: getWorldPosition(CGPoint(x: CGFloat(x), y: CGFloat(y))))
+                    }
+                }
+            }
+            
+            // Add some diagonal walls for variety
+            for i in stride(from: 3, to: 9, by: 2) {
+                if Double.random(in: 0...1) < 0.25 {
+                    createWall(at: getWorldPosition(CGPoint(x: CGFloat(i), y: CGFloat(i + 2))))
+                }
             }
         }
     }
@@ -991,6 +1010,10 @@ final class GameScene: SKScene {
                 let remove = SKAction.removeFromParent()
                 digEffect.run(SKAction.sequence([fadeOut, remove]))
                 
+                // Award points for digging a wall
+                score += 10
+                updateUI()
+
                 wall.removeFromParent()
                 return false
             }
@@ -1144,7 +1167,7 @@ final class GameScene: SKScene {
         score = 0
         lives = 3
         cherriesCollected = 0
-        enemySpeedMultiplier = 0.2  // Reset enemy speed to starting value
+        enemySpeedMultiplier = 0.5  // Reset enemy speed to starting value
         gameState = .playing
         
         // Remove all game objects
